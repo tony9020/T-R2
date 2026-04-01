@@ -180,67 +180,113 @@ function ResumeApp() {
 
   const extractText = async (file: File): Promise<string> => {
     if (file.name.toLowerCase().endsWith(".docx") || file.type.includes("wordprocessingml")) {
-      console.log("=== VERCEL DOCX EXTRACTION ===");
+      console.log("=== DOCX EXTRACTION ===");
       console.log("File name:", file.name);
       console.log("File type:", file.type);
       console.log("File size:", file.size);
+      console.log("Current URL:", window.location.href);
+      
+      // Detect if we're running on Vercel or locally
+      const isVercel = window.location.hostname.includes('vercel.app') || 
+                     window.location.hostname.includes('.vercel.app') ||
+                     !window.location.hostname.includes('localhost');
+      
+      console.log("🌐 Environment:", isVercel ? "Vercel (serverless)" : "Local (Express)");
       
       try {
-        // Convert file to base64 for Vercel serverless function
-        console.log("🔄 Converting file to base64...");
-        const base64File = await new Promise<string>((resolve, reject) => {
-          const reader = new FileReader();
-          reader.onload = () => {
-            const result = reader.result as string;
-            console.log("✅ FileReader result type:", typeof result);
-            console.log("✅ FileReader result length:", result.length);
-            console.log("📝 First 100 chars of base64:", result.substring(0, 100));
-            resolve(result);
+        if (isVercel) {
+          // Vercel serverless approach - use base64 JSON
+          console.log("🔄 Using Vercel serverless approach (base64 JSON)...");
+          
+          const base64File = await new Promise<string>((resolve, reject) => {
+            const reader = new FileReader();
+            reader.onload = () => {
+              const result = reader.result as string;
+              console.log("✅ FileReader result type:", typeof result);
+              console.log("✅ FileReader result length:", result.length);
+              console.log("📝 First 100 chars of base64:", result.substring(0, 100));
+              resolve(result);
+            };
+            reader.onerror = (error) => {
+              console.error("❌ FileReader error:", error);
+              reject(error);
+            };
+            reader.readAsDataURL(file);
+          });
+          
+          console.log("🚀 Sending request to /api/extract-text (Vercel)");
+          
+          const requestBody = {
+            file: base64File,
+            name: file.name,
+            type: file.type,
+            size: file.size
           };
-          reader.onerror = (error) => {
-            console.error("❌ FileReader error:", error);
-            reject(error);
-          };
-          reader.readAsDataURL(file);
-        });
-        
-        console.log("🚀 Sending request to /api/extract-text");
-        
-        const requestBody = {
-          file: base64File,
-          name: file.name,
-          type: file.type,
-          size: file.size
-        };
-        
-        console.log("📋 Request body structure:", {
-          hasFile: !!requestBody.file,
-          fileLength: requestBody.file.length,
-          name: requestBody.name,
-          type: requestBody.type,
-          size: requestBody.size
-        });
-        
-        const response = await fetch("/api/extract-text", {
-          method: "POST",
-          headers: {
-            'Content-Type': 'application/json',
-          },
-          body: JSON.stringify(requestBody),
-        });
-        
-        console.log("📡 Response status:", response.status);
-        console.log("📡 Response headers:", Object.fromEntries(response.headers.entries()));
-        
-        if (!response.ok) {
-          const errorData = await response.json().catch(() => ({ error: "Unknown server error" }));
-          console.error("❌ Server error response:", errorData);
-          throw new Error(errorData.error || `Server responded with ${response.status}`);
+          
+          console.log("📋 Request body structure:", {
+            hasFile: !!requestBody.file,
+            fileLength: requestBody.file.length,
+            name: requestBody.name,
+            type: requestBody.type,
+            size: requestBody.size
+          });
+          
+          const response = await fetch("/api/extract-text", {
+            method: "POST",
+            headers: {
+              'Content-Type': 'application/json',
+            },
+            body: JSON.stringify(requestBody),
+          });
+          
+          console.log("📡 Response status:", response.status);
+          console.log("📡 Response headers:", Object.fromEntries(response.headers.entries()));
+          
+          if (!response.ok) {
+            const errorData = await response.json().catch(() => ({ error: "Unknown server error" }));
+            console.error("❌ Server error response:", errorData);
+            throw new Error(errorData.error || `Server responded with ${response.status}`);
+          }
+          
+          const data = await response.json();
+          console.log("✅ Extraction successful, text length:", data.text?.length);
+          return data.text;
+          
+        } else {
+          // Local Express approach - use FormData
+          console.log("🔄 Using local Express approach (FormData)...");
+          
+          const formData = new FormData();
+          formData.append("file", file);
+          
+          console.log("📋 FormData entries:");
+          for (let [key, value] of formData.entries()) {
+            if (value instanceof File) {
+              console.log(`  ${key}:`, value.name, value.type, value.size);
+            } else {
+              console.log(`  ${key}:`, value);
+            }
+          }
+          
+          console.log("🚀 Sending request to /api/extract-text (Local)");
+          const response = await fetch("/api/extract-text", {
+            method: "POST",
+            body: formData,
+          });
+          
+          console.log("📡 Response status:", response.status);
+          console.log("📡 Response headers:", Object.fromEntries(response.headers.entries()));
+          
+          if (!response.ok) {
+            const errorData = await response.json().catch(() => ({ error: "Unknown server error" }));
+            console.error("❌ Server error response:", errorData);
+            throw new Error(errorData.error || `Server responded with ${response.status}`);
+          }
+          
+          const data = await response.json();
+          console.log("✅ Extraction successful, text length:", data.text?.length);
+          return data.text;
         }
-        
-        const data = await response.json();
-        console.log("✅ Extraction successful, text length:", data.text?.length);
-        return data.text;
       } catch (err: any) {
         console.error("❌ Extraction Error:", err);
         console.error("❌ Error stack:", err.stack);

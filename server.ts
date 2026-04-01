@@ -57,7 +57,7 @@ async function startServer() {
 
   // API Routes
   app.post("/api/extract-text", upload.single("file"), async (req, res) => {
-    console.log("=== DOCX EXTRACTION REQUEST ===");
+    console.log("=== LOCAL DOCX EXTRACTION REQUEST ===");
     console.log("Timestamp:", new Date().toISOString());
     console.log("Request headers:", Object.keys(req.headers).reduce((acc, key) => {
       acc[key] = req.headers[key];
@@ -76,20 +76,81 @@ async function startServer() {
     console.log("Content-Length:", req.headers['content-length']);
     
     try {
-      if (!req.file) {
-        console.error("❌ No file in request");
-        console.error("Available fields:", Object.keys(req.body || {}));
-        return res.status(400).json({ error: "No file uploaded" });
+      let fileBuffer: Buffer;
+      let fileName: string;
+      let fileType: string;
+
+      // Handle both FormData (local) and JSON base64 (Vercel) approaches
+      if (req.headers['content-type']?.includes('application/json')) {
+        // JSON base64 approach (for Vercel compatibility)
+        console.log("🔍 Processing JSON base64 request...");
+        const { file, name, type, size } = req.body;
+        
+        if (!file) {
+          console.error("❌ No file in JSON request body");
+          return res.status(400).json({ error: "No file uploaded - missing file field in request body" });
+        }
+
+        console.log("✅ File received via JSON:", name, "Size:", size, "Type:", type);
+
+        // Convert base64 to buffer
+        if (typeof file === 'string') {
+          console.log("🔄 Converting base64 to buffer...");
+          let base64Data = file;
+          if (file.includes(',')) {
+            base64Data = file.split(',')[1];
+            console.log("📝 Removed data URI prefix");
+          }
+          
+          if (!base64Data) {
+            console.error("❌ No valid base64 data found");
+            return res.status(400).json({ error: "Invalid base64 data" });
+          }
+          
+          fileBuffer = Buffer.from(base64Data, 'base64');
+          fileName = name || 'uploaded.docx';
+          fileType = type || 'application/vnd.openxmlformats-officedocument.wordprocessingml.document';
+          console.log("🔧 Buffer created, length:", fileBuffer.length);
+        } else {
+          console.error("❌ File is not a string, type:", typeof file);
+          return res.status(400).json({ error: "Invalid file format - expected base64 string" });
+        }
+      } else {
+        // Traditional FormData approach (for local development)
+        console.log("🔍 Processing FormData request...");
+        
+        if (!req.file) {
+          console.error("❌ No file in FormData request");
+          console.error("Available fields:", Object.keys(req.body || {}));
+          return res.status(400).json({ error: "No file uploaded" });
+        }
+
+        console.log("✅ File received via FormData:", req.file.originalname, "Size:", req.file.size, "MIME:", req.file.mimetype);
+
+        fileBuffer = req.file.buffer;
+        fileName = req.file.originalname;
+        fileType = req.file.mimetype;
       }
 
-      console.log("✅ File received:", req.file.originalname, "Size:", req.file.size, "MIME:", req.file.mimetype);
+      // Verify buffer was created successfully
+      if (fileBuffer.length === 0) {
+        console.error("❌ Empty buffer created");
+        return res.status(400).json({ error: "Empty file buffer" });
+      }
+
+      // Verify it's a DOCX file by checking the magic bytes
+      const docxSignature = Buffer.from([0x50, 0x4B, 0x03, 0x04]); // PK signature
+      if (fileBuffer.length < 4 || !fileBuffer.subarray(0, 4).equals(docxSignature)) {
+        console.error("❌ Not a valid DOCX file (invalid signature)");
+        console.error("📋 First 10 bytes:", Array.from(fileBuffer.subarray(0, 10)));
+        return res.status(400).json({ error: "Invalid DOCX file format - expected .docx file" });
+      }
 
       // Test mammoth availability
       console.log("🔧 Testing mammoth library...");
-      const buffer = req.file.buffer;
-      console.log("📄 Buffer length:", buffer.length, "bytes");
+      console.log("📄 Buffer length:", fileBuffer.length, "bytes");
       
-      const result = await mammoth.extractRawText({ buffer });
+      const result = await mammoth.extractRawText({ buffer: fileBuffer });
       console.log("✅ Extraction successful, characters:", result.value.length);
       console.log("📝 First 100 chars:", result.value.substring(0, 100));
       
