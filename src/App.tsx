@@ -180,27 +180,36 @@ function ResumeApp() {
 
   const extractText = async (file: File): Promise<string> => {
     if (file.name.toLowerCase().endsWith(".docx") || file.type.includes("wordprocessingml")) {
-      const formData = new FormData();
-      formData.append("file", file);
-      
-      console.log("=== FRONTEND DOCX EXTRACTION ===");
+      console.log("=== VERCEL DOCX EXTRACTION ===");
       console.log("File name:", file.name);
       console.log("File type:", file.type);
       console.log("File size:", file.size);
-      console.log("FormData entries:");
-      for (let [key, value] of formData.entries()) {
-        if (value instanceof File) {
-          console.log(`  ${key}:`, value.name, value.type, value.size);
-        } else {
-          console.log(`  ${key}:`, value);
-        }
-      }
       
       try {
+        // Convert file to base64 for Vercel serverless function
+        const base64File = await new Promise<string>((resolve, reject) => {
+          const reader = new FileReader();
+          reader.onload = () => {
+            const result = reader.result as string;
+            resolve(result);
+          };
+          reader.onerror = reject;
+          reader.readAsDataURL(file);
+        });
+        
         console.log("🚀 Sending request to /api/extract-text");
+        
         const response = await fetch("/api/extract-text", {
           method: "POST",
-          body: formData,
+          headers: {
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({
+            file: base64File,
+            name: file.name,
+            type: file.type,
+            size: file.size
+          }),
         });
         
         console.log("📡 Response status:", response.status);
