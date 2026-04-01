@@ -140,12 +140,9 @@ function ResumeApp() {
   const [isRefining, setIsRefining] = useState(false);
   const [isDownloadingDocx, setIsDownloadingDocx] = useState(false);
   const [elapsedTime, setElapsedTime] = useState(0);
-  const [result, setResult] = useState<ResumeData | null>(null);
-  const [previousResult, setPreviousResult] = useState<ResumeData | null>(null);
-  const [isMaxOptimized, setIsMaxOptimized] = useState(false);
-  const [isMaxOptimizing, setIsMaxOptimizing] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-  const [editInstructions, setEditInstructions] = useState('');
+  const [showThankYou, setShowThankYou] = useState(false);
+  const [quotaUsed, setQuotaUsed] = useState(0);
+  const [lastQuotaReset, setLastQuotaReset] = useState<Date | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   React.useEffect(() => {
@@ -416,45 +413,10 @@ function ResumeApp() {
             if (attempt < maxRetries) {
               console.log(`⏳ Retrying in ${retryDelay}ms... (attempt ${attempt + 1}/${maxRetries})`);
               await new Promise(resolve => setTimeout(resolve, retryDelay));
-              continue;
-            } else {
-              throw new Error("AI service is currently experiencing high demand. Please try again in a few minutes.");
-            }
-          } else {
-            // For other errors, don't retry
-            throw error;
-          }
-        }
-      }
-
-      let data: ResumeData;
-      try {
-        data = JSON.parse(response.text) as ResumeData;
-      } catch (parseErr) {
-        console.error("JSON Parse Error:", parseErr, "Raw Text:", response.text);
-        throw new Error("Failed to parse AI response.");
-      }
-      setResult(data);
-    } catch (err: any) {
-      console.error("Optimization Error:", err);
-      setError(err.message || "Failed to optimize resume.");
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  const reOptimizeResume = async () => {
-    if (!result || !editInstructions.trim()) return;
     
-    setIsRefining(true);
-    setError(null);
-    const startTime = Date.now();
-    
-    try {
-      const ai = getAI();
-      const roleContext = selectedRoles.length > 0 ? `Target Roles: ${selectedRoles.join(', ')}. ` : '';
-      const contents = [
-        { text: `Current Resume Data: ${JSON.stringify(result.improved_resume)}` },
+    const timeoutPromise = new Promise((_, reject) => 
+      setTimeout(() => reject(new Error("Request timed out after 10 minutes.")), 600000)
+    );
         { text: `${roleContext}Refine this resume with these changes: "${editInstructions}". 
                  Strictly maintain Global ATS optimization and Harvard Business School styling standards. 
                  Ensure bullet points start with action verbs and include metrics.
@@ -489,9 +451,18 @@ function ResumeApp() {
         improved_resume: parsed 
       };
 
-      setResult(newData as ResumeData);
-      setEditInstructions('');
-      setElapsedTime(Math.floor((Date.now() - startTime) / 1000));
+      // Show thank you popup just before setting the result
+      showThankYouPopup();
+      
+      // Update quota usage on successful completion
+      updateQuotaUsage();
+      
+      // Set result after a brief delay to let the popup show first
+      setTimeout(() => {
+        setResult(newData as ResumeData);
+        setEditInstructions('');
+        setElapsedTime(Math.floor((Date.now() - startTime) / 1000));
+      }, 100);
     } catch (err: any) {
       console.error("Refinement Error:", err);
       setError("Failed to refine resume. Please ensure your instructions are clear and try again.");
@@ -535,8 +506,17 @@ function ResumeApp() {
       if (!response.text) throw new Error("No response from AI");
 
       const parsed = JSON.parse(response.text);
-      setResult(parsed as ResumeData);
-      setIsMaxOptimized(true);
+      // Show thank you popup just before setting the result
+      showThankYouPopup();
+      
+      // Update quota usage on successful completion
+      updateQuotaUsage();
+      
+      // Set result after a brief delay to let the popup show first
+      setTimeout(() => {
+        setResult(parsed as ResumeData);
+        setIsMaxOptimized(true);
+      }, 100);
     } catch (err: any) {
       console.error("Max Optimization Error:", err);
       setError("Failed to perform Max Optimization. Please try again.");
@@ -620,6 +600,17 @@ function ResumeApp() {
       a.download = fileName;
       document.body.appendChild(a);
       a.click();
+      
+      // Show thank you popup just before setting the result
+      showThankYouPopup();
+      
+      // Update quota usage on successful completion
+      updateQuotaUsage();
+      
+      // Set result after a brief delay to let the popup show first
+      setTimeout(() => {
+        setResult(data);
+      }, 100);
       
       // Cleanup with delay for mobile browsers
       setTimeout(() => {
