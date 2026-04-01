@@ -14,14 +14,37 @@ const upload = multer({ storage: multer.memoryStorage() });
 
 async function startServer() {
   const app = express();
-  const PORT = 3000;
+  const PORT = Number(process.env.PORT) || 3000;
 
+  // Middleware
   app.use(cors());
   app.use(express.json({ limit: '50mb' }));
+  app.use((req, res, next) => {
+    console.log(`${new Date().toISOString()} - ${req.method} ${req.path}`);
+    next();
+  });
+
+  // Health check endpoint
+  app.get("/api/health", (req, res) => {
+    res.json({ 
+      status: "ok", 
+      timestamp: new Date().toISOString(),
+      environment: process.env.NODE_ENV || "development"
+    });
+  });
 
   // API Routes
   app.post("/api/extract-text", upload.single("file"), async (req, res) => {
     console.log("Extraction request received");
+    console.log("Request headers:", req.headers);
+    console.log("Request body keys:", Object.keys(req.body || {}));
+    console.log("Request file:", req.file ? {
+      originalname: req.file.originalname,
+      size: req.file.size,
+      mimetype: req.file.mimetype,
+      bufferLength: req.file.buffer.length
+    } : 'No file');
+    
     try {
       if (!req.file) {
         console.error("No file in request");
@@ -36,6 +59,7 @@ async function startServer() {
       res.json({ text: result.value });
     } catch (error: any) {
       console.error("Error extracting text:", error);
+      console.error("Error stack:", error.stack);
       res.status(500).json({ error: `Failed to extract text: ${error.message}` });
     }
   });
@@ -313,9 +337,19 @@ async function startServer() {
     });
     app.use(vite.middlewares);
   } else {
+    // In production, serve static files but ensure API routes work
     const distPath = path.resolve(__dirname, "dist");
+    
+    // Serve static files
     app.use(express.static(distPath));
-    app.get("*", (req, res) => {
+    
+    // Handle client-side routing - only for non-API routes
+    app.get("*", (req, res, next) => {
+      // Skip API routes - they should have been handled already
+      if (req.path.startsWith('/api/')) {
+        console.log(`API route not found: ${req.path}`);
+        return res.status(404).json({ error: "API endpoint not found" });
+      }
       res.sendFile(path.resolve(distPath, "index.html"));
     });
   }
