@@ -178,6 +178,42 @@ function ResumeApp() {
     }
   };
 
+  // Helper function for FormData approach
+  const extractTextFormData = async (file: File): Promise<string> => {
+    console.log("🔄 Using FormData fallback method...");
+    
+    const formData = new FormData();
+    formData.append("file", file);
+    
+    console.log("📋 FormData entries:");
+    for (let [key, value] of formData.entries()) {
+      if (value instanceof File) {
+        console.log(`  ${key}:`, value.name, value.type, value.size);
+      } else {
+        console.log(`  ${key}:`, value);
+      }
+    }
+    
+    console.log("🚀 Sending request to /api/extract-text (FormData fallback)");
+    const response = await fetch("/api/extract-text", {
+      method: "POST",
+      body: formData,
+    });
+    
+    console.log("📡 Response status:", response.status);
+    console.log("📡 Response headers:", Object.fromEntries(response.headers.entries()));
+    
+    if (!response.ok) {
+      const errorData = await response.json().catch(() => ({ error: "Unknown server error" }));
+      console.error("❌ Server error response:", errorData);
+      throw new Error(errorData.error || `Server responded with ${response.status}`);
+    }
+    
+    const data = await response.json();
+    console.log("✅ Extraction successful, text length:", data.text?.length);
+    return data.text;
+  };
+
   const extractText = async (file: File): Promise<string> => {
     if (file.name.toLowerCase().endsWith(".docx") || file.type.includes("wordprocessingml")) {
       console.log("=== DOCX EXTRACTION ===");
@@ -192,6 +228,23 @@ function ResumeApp() {
                      !window.location.hostname.includes('localhost');
       
       console.log("🌐 Environment:", isVercel ? "Vercel (serverless)" : "Local (Express)");
+      
+      // Test if serverless functions are available (only on Vercel)
+      if (isVercel) {
+        try {
+          console.log("🔍 Testing serverless function availability...");
+          const testResponse = await fetch("/api/test");
+          if (!testResponse.ok) {
+            throw new Error("Serverless functions not available");
+          }
+          const testData = await testResponse.json();
+          console.log("✅ Serverless test successful:", testData);
+        } catch (testError) {
+          console.error("❌ Serverless functions not available, falling back to FormData:", testError);
+          // Fallback to FormData approach even on Vercel
+          return await extractTextFormData(file);
+        }
+      }
       
       try {
         if (isVercel) {
