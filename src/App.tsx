@@ -187,29 +187,46 @@ function ResumeApp() {
       
       try {
         // Convert file to base64 for Vercel serverless function
+        console.log("🔄 Converting file to base64...");
         const base64File = await new Promise<string>((resolve, reject) => {
           const reader = new FileReader();
           reader.onload = () => {
             const result = reader.result as string;
+            console.log("✅ FileReader result type:", typeof result);
+            console.log("✅ FileReader result length:", result.length);
+            console.log("📝 First 100 chars of base64:", result.substring(0, 100));
             resolve(result);
           };
-          reader.onerror = reject;
+          reader.onerror = (error) => {
+            console.error("❌ FileReader error:", error);
+            reject(error);
+          };
           reader.readAsDataURL(file);
         });
         
         console.log("🚀 Sending request to /api/extract-text");
+        
+        const requestBody = {
+          file: base64File,
+          name: file.name,
+          type: file.type,
+          size: file.size
+        };
+        
+        console.log("📋 Request body structure:", {
+          hasFile: !!requestBody.file,
+          fileLength: requestBody.file.length,
+          name: requestBody.name,
+          type: requestBody.type,
+          size: requestBody.size
+        });
         
         const response = await fetch("/api/extract-text", {
           method: "POST",
           headers: {
             'Content-Type': 'application/json',
           },
-          body: JSON.stringify({
-            file: base64File,
-            name: file.name,
-            type: file.type,
-            size: file.size
-          }),
+          body: JSON.stringify(requestBody),
         });
         
         console.log("📡 Response status:", response.status);
@@ -259,25 +276,56 @@ function ResumeApp() {
 
       contents.push({ text: promptText });
 
-      const timeoutPromise = new Promise((_, reject) => 
-        setTimeout(() => reject(new Error("Request timed out after 10 minutes.")), 600000)
-      );
+      // Add retry logic for Gemini API
+      const maxRetries = 3;
+      const retryDelay = 2000; // 2 seconds
+      
+      let response;
+      for (let attempt = 1; attempt <= maxRetries; attempt++) {
+        try {
+          console.log(`🤖 AI optimization attempt ${attempt}/${maxRetries}...`);
+          
+          const timeoutPromise = new Promise((_, reject) => 
+            setTimeout(() => reject(new Error("Request timed out after 10 minutes.")), 600000)
+          );
 
-      const aiPromise = ai.models.generateContent({
-        model: "gemini-3-flash-preview",
-        contents: { parts: contents },
-        config: {
-          systemInstruction: SYSTEM_INSTRUCTION,
-          thinkingConfig: { thinkingLevel: ThinkingLevel.HIGH },
-          responseMimeType: "application/json",
-          responseSchema: RESUME_SCHEMA as any,
-        },
-      });
+          const aiPromise = ai.models.generateContent({
+            model: "gemini-3-flash-preview",
+            contents: { parts: contents },
+            config: {
+              systemInstruction: SYSTEM_INSTRUCTION,
+              thinkingConfig: { thinkingLevel: ThinkingLevel.HIGH },
+              responseMimeType: "application/json",
+              responseSchema: RESUME_SCHEMA as any,
+            },
+          });
 
-      const response = await Promise.race([aiPromise, timeoutPromise]) as any;
-
-      if (!response.text) {
-        throw new Error("No response from AI");
+          response = await Promise.race([aiPromise, timeoutPromise]) as any;
+          
+          if (!response.text) {
+            throw new Error("No response from AI");
+          }
+          
+          console.log("✅ AI optimization successful");
+          break; // Success, exit retry loop
+          
+        } catch (error: any) {
+          console.error(`❌ AI optimization attempt ${attempt} failed:`, error);
+          
+          // Check if it's a rate limiting error
+          if (error.message?.includes("503") || error.message?.includes("high demand") || error.message?.includes("UNAVAILABLE")) {
+            if (attempt < maxRetries) {
+              console.log(`⏳ Retrying in ${retryDelay}ms... (attempt ${attempt + 1}/${maxRetries})`);
+              await new Promise(resolve => setTimeout(resolve, retryDelay));
+              continue;
+            } else {
+              throw new Error("AI service is currently experiencing high demand. Please try again in a few minutes.");
+            }
+          } else {
+            // For other errors, don't retry
+            throw error;
+          }
+        }
       }
 
       let data: ResumeData;
