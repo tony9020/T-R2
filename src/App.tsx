@@ -183,21 +183,41 @@ function ResumeApp() {
       const formData = new FormData();
       formData.append("file", file);
       
+      console.log("=== FRONTEND DOCX EXTRACTION ===");
+      console.log("File name:", file.name);
+      console.log("File type:", file.type);
+      console.log("File size:", file.size);
+      console.log("FormData entries:");
+      for (let [key, value] of formData.entries()) {
+        if (value instanceof File) {
+          console.log(`  ${key}:`, value.name, value.type, value.size);
+        } else {
+          console.log(`  ${key}:`, value);
+        }
+      }
+      
       try {
+        console.log("🚀 Sending request to /api/extract-text");
         const response = await fetch("/api/extract-text", {
           method: "POST",
           body: formData,
         });
         
+        console.log("📡 Response status:", response.status);
+        console.log("📡 Response headers:", Object.fromEntries(response.headers.entries()));
+        
         if (!response.ok) {
           const errorData = await response.json().catch(() => ({ error: "Unknown server error" }));
+          console.error("❌ Server error response:", errorData);
           throw new Error(errorData.error || `Server responded with ${response.status}`);
         }
         
         const data = await response.json();
+        console.log("✅ Extraction successful, text length:", data.text?.length);
         return data.text;
       } catch (err: any) {
-        console.error("Extraction Error:", err);
+        console.error("❌ Extraction Error:", err);
+        console.error("❌ Error stack:", err.stack);
         throw new Error(`Failed to read .docx file: ${err.message}. Try converting it to .txt first.`);
       }
     }

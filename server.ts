@@ -33,34 +33,84 @@ async function startServer() {
     });
   });
 
+  // Test mammoth library
+  app.get("/api/test-mammoth", (req, res) => {
+    try {
+      console.log("Testing mammoth library availability...");
+      // Just test if mammoth is available and can be called
+      const testResult = typeof mammoth.extractRawText === 'function';
+      console.log("✅ Mammoth library is available, extractRawText function:", testResult);
+      res.json({ 
+        status: "mammoth-ok", 
+        extractRawTextAvailable: testResult,
+        timestamp: new Date().toISOString()
+      });
+    } catch (error: any) {
+      console.error("❌ Mammoth library test failed:", error);
+      res.status(500).json({ 
+        status: "mammoth-error", 
+        error: error.message,
+        timestamp: new Date().toISOString()
+      });
+    }
+  });
+
   // API Routes
   app.post("/api/extract-text", upload.single("file"), async (req, res) => {
-    console.log("Extraction request received");
-    console.log("Request headers:", req.headers);
+    console.log("=== DOCX EXTRACTION REQUEST ===");
+    console.log("Timestamp:", new Date().toISOString());
+    console.log("Request headers:", Object.keys(req.headers).reduce((acc, key) => {
+      acc[key] = req.headers[key];
+      return acc;
+    }, {} as any));
     console.log("Request body keys:", Object.keys(req.body || {}));
-    console.log("Request file:", req.file ? {
+    console.log("Request file details:", req.file ? {
       originalname: req.file.originalname,
       size: req.file.size,
       mimetype: req.file.mimetype,
-      bufferLength: req.file.buffer.length
-    } : 'No file');
+      bufferLength: req.file.buffer.length,
+      fieldname: req.file.fieldname,
+      encoding: req.file.encoding
+    } : 'No file received');
+    console.log("Content-Type header:", req.headers['content-type']);
+    console.log("Content-Length:", req.headers['content-length']);
     
     try {
       if (!req.file) {
-        console.error("No file in request");
+        console.error("❌ No file in request");
+        console.error("Available fields:", Object.keys(req.body || {}));
         return res.status(400).json({ error: "No file uploaded" });
       }
 
-      console.log("File received:", req.file.originalname, "Size:", req.file.size, "MIME:", req.file.mimetype);
+      console.log("✅ File received:", req.file.originalname, "Size:", req.file.size, "MIME:", req.file.mimetype);
 
+      // Test mammoth availability
+      console.log("🔧 Testing mammoth library...");
       const buffer = req.file.buffer;
+      console.log("📄 Buffer length:", buffer.length, "bytes");
+      
       const result = await mammoth.extractRawText({ buffer });
-      console.log("Extraction successful, characters:", result.value.length);
+      console.log("✅ Extraction successful, characters:", result.value.length);
+      console.log("📝 First 100 chars:", result.value.substring(0, 100));
+      
       res.json({ text: result.value });
     } catch (error: any) {
-      console.error("Error extracting text:", error);
-      console.error("Error stack:", error.stack);
-      res.status(500).json({ error: `Failed to extract text: ${error.message}` });
+      console.error("❌ Error extracting text:", error);
+      console.error("❌ Error message:", error.message);
+      console.error("❌ Error stack:", error.stack);
+      console.error("❌ Error type:", error.constructor.name);
+      
+      // Send more detailed error info
+      const errorResponse = {
+        error: `Failed to extract text: ${error.message}`,
+        details: {
+          name: error.constructor.name,
+          stack: error.stack,
+          timestamp: new Date().toISOString()
+        }
+      };
+      
+      res.status(500).json(errorResponse);
     }
   });
 
